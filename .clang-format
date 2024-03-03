@@ -1,0 +1,24 @@
+
+# BasedOnStyle: LLVM
+BasedOnStyle: LLVM
+# IndentWidth: 4
+IndentWidth: 4
+# UseTab: Never
+AccessModifierOffset: -4
+# case 
+IndentCaseLabels: true
+# AllowShortIfStatementsOnASingleLine: true
+# AlwaysBreakTemplateDeclarations: true
+# AllowShortBlocksOnASingleLine: 'false'
+# AllowShortIfStatementsOnASingleLine: Never
+# AllowShortLoopsOnASingleLine: 'false'
+# DerivePointerAlignment: 'false'
+# ExperimentalAutoDetectBinPacking: 'false'
+# FixNamespaceComments: 'true'
+# PointerAlignment: Left
+# # We abuse control macros for formatting other kinds of macros.
+# SpaceBeforeParens: ControlStatementsExceptControlMacros
+# IfMacros: ['CARBON_DEFINE_RAW_ENUM_CLASS']
+# StatementMacros: ['ABSTRACT']
+
+ 
