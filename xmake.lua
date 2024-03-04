@@ -11,4 +11,5 @@ target("http")
     add_deps("quickjs")
     set_languages("c11")
     add_packages("libcurl", "libevent")
+    add_options("bignum", "atomics", "platform", "jsx", "smallest")
 

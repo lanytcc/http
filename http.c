@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 #include <string.h>
+#ifdef _WIN32
+#include <winsock2.h>
+#endif
 
 #include <curl/curl.h>
 #include <cutils.h>
@@ -662,6 +665,9 @@ typedef struct {
     JSContext *ctx;
     struct event_base *base;
     struct evhttp *http;
+#ifdef _WIN32
+    WSADATA wsaData;
+#endif
 } http_server;
 
 static JSClassID http_server_class_id = 0;
@@ -672,6 +678,9 @@ static void http_server_finalizer(JSRuntime *rt, JSValue val) {
         evhttp_free(server->http);
         event_base_free(server->base);
         js_free(server->ctx, server);
+#ifdef _WIN32
+        WSACleanup();
+#endif
     }
 }
 
@@ -704,6 +713,9 @@ static JSValue http_server_ctor(JSContext *ctx, JSValueConst new_target,
         JS_ThrowOutOfMemory(ctx);
         goto fail;
     }
+#ifdef _WIN32
+    WSAStartup(MAKEWORD(2, 2), &server->wsaData);
+#endif
     server->ctx = ctx;
     server->base = event_base_new();
     if (!server->base) {
@@ -845,8 +857,8 @@ static int http_init(JSContext *ctx, JSModuleDef *m) {
     return 0;
 }
 
-__declspec(dllexport) JSModuleDef *js_init_modeule(JSContext *ctx,
-                                                   const char *module_name) {
+__declspec(dllexport) JSModuleDef *js_init_module(JSContext *ctx,
+                                                  const char *module_name) {
     JSModuleDef *m;
     JSClassID id;
 
