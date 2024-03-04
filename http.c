@@ -1,16 +1,20 @@
 
+#include "quickjs-libc.h"
 #include "util.h"
 
 #include <stdint.h>
 #include <string.h>
+#include <vcruntime.h>
 #ifdef _WIN32
 #include <winsock2.h>
 #endif
 
 #include <curl/curl.h>
 #include <cutils.h>
+#include <event2/buffer.h>
 #include <event2/event.h>
 #include <event2/http.h>
+#include <event2/keyvalq_struct.h>
 #include <quickjs.h>
 
 enum {
@@ -54,6 +58,8 @@ static JSClassDef http_req_class = {
     .finalizer = http_req_finalizer,
 };
 
+static JSValue http_req_set(JSContext *ctx, JSValueConst this_val, int argc,
+                            JSValueConst *argv);
 static JSValue http_req_ctor(JSContext *ctx, JSValueConst new_target, int argc,
                              JSValueConst *argv) {
     JSValue obj = JS_UNDEFINED;
@@ -82,7 +88,18 @@ static JSValue http_req_ctor(JSContext *ctx, JSValueConst new_target, int argc,
     for (int i = 0; i < HTTP_REQ_COUNT - HTTP_REQ_PARAMS; ++i) {
         req->js_fields[i] = JS_UNDEFINED;
     }
+
     JS_SetOpaque(obj, req);
+    if (argc > 0) {
+        if (JS_IsObject(argv[0])) {
+            if (JS_IsException(http_req_set(ctx, obj, argc, argv))) {
+                goto fail;
+            }
+        } else {
+            JS_ThrowTypeError(ctx, "request([val]), val must be object");
+            goto fail;
+        }
+    }
     JS_FreeValue(ctx, proto);
     return obj;
 fail:
@@ -139,17 +156,25 @@ static JSValue http_req_set(JSContext *ctx, JSValueConst this_val, int argc,
 
     for (int i = 0; i < HTTP_REQ_PARAMS; ++i) {
         v = JS_GetPropertyStr(ctx, val, http_req_fields[i]);
-        if (!JS_IsUndefined(v)) {
-            js_free(ctx, req->str_fields[i]);
-            req->str_fields[i] = (char *)JS_ToCString(ctx, v);
+        if (JS_IsUndefined(v))
+            continue;
+        if (!JS_IsString(v)) {
+            JS_ThrowTypeError(ctx,
+                              "request([val]), val's fields must be string");
+            return JS_EXCEPTION;
         }
+        req->str_fields[i] = (char *)JS_ToCString(ctx, v);
     }
     for (int i = 0; i < HTTP_REQ_COUNT - HTTP_REQ_PARAMS; ++i) {
         v = JS_GetPropertyStr(ctx, val, http_req_fields[i + HTTP_REQ_PARAMS]);
-        if (!JS_IsUndefined(v)) {
-            JS_FreeValue(ctx, req->js_fields[i]);
-            req->js_fields[i] = JS_DupValue(ctx, v);
+        if (JS_IsUndefined(v))
+            continue;
+        if (!JS_IsObject(v)) {
+            JS_ThrowTypeError(
+                ctx, "request([val]), val's params, headers must be object");
+            return JS_EXCEPTION;
         }
+        req->js_fields[i] = JS_DupValue(ctx, v);
     }
     return JS_UNDEFINED;
 }
@@ -163,6 +188,7 @@ static const JSCFunctionListEntry http_req_proto_funcs[] = {
 typedef struct {
     JSContext *ctx;
     int status;
+    char *reason;
     char *body;
     JSValue headers;
 } http_res;
@@ -172,6 +198,7 @@ static JSClassID http_res_class_id = 0;
 static void http_res_finalizer(JSRuntime *rt, JSValue val) {
     http_res *res = JS_GetOpaque(val, http_res_class_id);
     if (res) {
+        js_free(res->ctx, res->reason);
         js_free(res->ctx, res->body);
         JS_FreeValue(res->ctx, res->headers);
         js_free(res->ctx, res);
@@ -182,7 +209,8 @@ static JSClassDef http_res_class = {
     .class_name = "response",
     .finalizer = http_res_finalizer,
 };
-
+static JSValue http_res_set(JSContext *ctx, JSValueConst this_val, int argc,
+                            JSValueConst *argv);
 static JSValue http_res_ctor(JSContext *ctx, JSValueConst new_target, int argc,
                              JSValueConst *argv) {
     JSValue obj = JS_UNDEFINED;
@@ -210,9 +238,18 @@ static JSValue http_res_ctor(JSContext *ctx, JSValueConst new_target, int argc,
     res->ctx = ctx;
     res->status = 200;
     res->headers = JS_UNDEFINED;
-    if (JS_IsException(res->headers))
-        goto fail;
+
     JS_SetOpaque(obj, res);
+    if (argc > 0) {
+        if (JS_IsObject(argv[0])) {
+            if (JS_IsException(http_res_set(ctx, obj, argc, argv))) {
+                goto fail;
+            }
+        } else {
+            JS_ThrowTypeError(ctx, "response([val]), val must be object");
+            goto fail;
+        }
+    }
     JS_FreeValue(ctx, proto);
     return obj;
 fail:
@@ -234,14 +271,17 @@ static JSValue http_res_get(JSContext *ctx, JSValueConst this_val, int argc,
         return JS_EXCEPTION;
     JS_DefinePropertyValueStr(ctx, obj, "status", JS_NewInt32(ctx, res->status),
                               JS_PROP_C_W_E);
-    if (res->body) {
+    if (res->reason)
+        JS_DefinePropertyValueStr(
+            ctx, obj, "reason", JS_NewString(ctx, res->reason), JS_PROP_C_W_E);
+    if (res->body)
         JS_DefinePropertyValueStr(ctx, obj, "body",
                                   JS_NewString(ctx, res->body), JS_PROP_C_W_E);
-    }
-    if (!JS_IsUndefined(res->headers)) {
+
+    if (!JS_IsUndefined(res->headers))
         JS_DefinePropertyValueStr(ctx, obj, "headers", res->headers,
                                   JS_PROP_C_W_E);
-    }
+
     return obj;
 }
 
@@ -263,17 +303,52 @@ static JSValue http_res_set(JSContext *ctx, JSValueConst this_val, int argc,
 
     v = JS_GetPropertyStr(ctx, val, "status");
     if (!JS_IsUndefined(v)) {
-        JS_ToInt32(ctx, &res->status, v);
+        if (JS_IsNumber(v))
+            JS_ToInt32(ctx, &res->status, v);
+        else {
+            JS_FreeValue(ctx, v);
+            JS_ThrowTypeError(ctx,
+                              "response([val]), val.status must be number");
+            return JS_EXCEPTION;
+        }
     }
+
+    v = JS_GetPropertyStr(ctx, val, "reason");
+    if (!JS_IsUndefined(v)) {
+        if (JS_IsString(v)) {
+            js_free(ctx, res->reason);
+            res->reason = (char *)JS_ToCString(ctx, v);
+        } else {
+            JS_FreeValue(ctx, v);
+            JS_ThrowTypeError(ctx,
+                              "response([val]), val.reason must be string");
+            return JS_EXCEPTION;
+        }
+    }
+
     v = JS_GetPropertyStr(ctx, val, "body");
     if (!JS_IsUndefined(v)) {
-        js_free(ctx, res->body);
-        res->body = (char *)JS_ToCString(ctx, v);
+        if (JS_IsString(v)) {
+            js_free(ctx, res->body);
+            res->body = (char *)JS_ToCString(ctx, v);
+        } else {
+            JS_FreeValue(ctx, v);
+            JS_ThrowTypeError(ctx, "response([val]), val.body must be string");
+            return JS_EXCEPTION;
+        }
     }
+
     v = JS_GetPropertyStr(ctx, val, "headers");
     if (!JS_IsUndefined(v)) {
-        JS_FreeValue(ctx, res->headers);
-        res->headers = JS_DupValue(ctx, v);
+        if (JS_IsObject(v)) {
+            JS_FreeValue(ctx, res->headers);
+            res->headers = JS_DupValue(ctx, v);
+        } else {
+            JS_FreeValue(ctx, v);
+            JS_ThrowTypeError(ctx,
+                              "response([val]), val.headers must be object");
+            return JS_EXCEPTION;
+        }
     }
     return JS_UNDEFINED;
 }
@@ -420,6 +495,21 @@ fail:
     return JS_EXCEPTION;
 }
 
+static JSValue ev_params_to_obj(JSContext *ctx, struct evkeyvalq *params) {
+    JSValue obj = JS_UNDEFINED;
+    struct evkeyval *param;
+    if (!params)
+        return JS_UNDEFINED;
+    obj = JS_NewObject(ctx);
+    if (JS_IsException(obj))
+        return JS_EXCEPTION;
+    for (struct evkeyval *p = params->tqh_first; p; p = p->next.tqe_next) {
+        JS_DefinePropertyValueStr(ctx, obj, p->key, JS_NewString(ctx, p->value),
+                                  JS_PROP_C_W_E);
+    }
+    return obj;
+}
+
 // to str, like "Header1: Value1\r\nHeader2: Value2\r\n"
 static JSValue headers_helper(JSContext *ctx, http_req *req,
                               char **headers_str) {
@@ -529,6 +619,21 @@ static JSValue headers_to_obj(JSContext *ctx, const char *headers_str) {
 fail:
     JS_FreeValue(ctx, obj);
     return JS_EXCEPTION;
+}
+
+static JSValue ev_headers_to_obj(JSContext *ctx, struct evkeyvalq *headers) {
+    JSValue obj = JS_UNDEFINED;
+    struct evkeyval *header;
+    if (!headers)
+        return JS_UNDEFINED;
+    obj = JS_NewObject(ctx);
+    if (JS_IsException(obj))
+        return JS_EXCEPTION;
+    for (struct evkeyval *p = headers->tqh_first; p; p = p->next.tqe_next) {
+        JS_DefinePropertyValueStr(ctx, obj, p->key, JS_NewString(ctx, p->value),
+                                  JS_PROP_C_W_E);
+    }
+    return obj;
 }
 
 static size_t write_callback(void *ptr, size_t size, size_t nmemb, void *data) {
@@ -661,14 +766,26 @@ fail:
     return JS_EXCEPTION;
 }
 
+typedef struct http_server_cb http_server_cb;
 typedef struct {
     JSContext *ctx;
     struct event_base *base;
     struct evhttp *http;
+    JSValue *callbacks;
+    size_t callbacks_len;
+    http_server_cb *cbs;
+    size_t cbs_len;
 #ifdef _WIN32
     WSADATA wsaData;
 #endif
 } http_server;
+
+struct http_server_cb {
+    JSContext *ctx;
+    http_server *server;
+    JSValue server_this;
+    size_t callback_index;
+};
 
 static JSClassID http_server_class_id = 0;
 
@@ -677,6 +794,11 @@ static void http_server_finalizer(JSRuntime *rt, JSValue val) {
     if (server) {
         evhttp_free(server->http);
         event_base_free(server->base);
+        for (size_t i = 0; i < server->callbacks_len; ++i) {
+            JS_FreeValue(server->ctx, server->callbacks[i]);
+        }
+        js_free(server->ctx, server->callbacks);
+        js_free(server->ctx, server->cbs);
         js_free(server->ctx, server);
 #ifdef _WIN32
         WSACleanup();
@@ -762,27 +884,166 @@ static JSValue http_server_listen(JSContext *ctx, JSValueConst this_val,
     return JS_UNDEFINED;
 }
 
+static const char *evhttp_cmd_str[] = {
+    "GET", "POST", "HEAD", "PUT", "DELETE", "OPTIONS", "TRACE", "CONNECT",
+};
+
+static const char *evhttp_cmd_type_to_str(enum evhttp_cmd_type type) {
+    size_t i = 0;
+    if (type < EVHTTP_REQ_GET || type > EVHTTP_REQ_PATCH)
+        return NULL;
+    for (i = 0; i < countof(evhttp_cmd_str); ++i) {
+        if (type & (1 << i))
+            break;
+    }
+    return evhttp_cmd_str[type];
+}
+
+static void callback_helper(struct evhttp_request *req, void *arg) {
+    http_server_cb *cb = arg;
+    http_server *server = cb->server;
+    JSValue argv[1], ret, key, value, res_new;
+    http_req *req_obj;
+    http_res *res_obj;
+    const char *uri;
+    struct evkeyvalq *headers, uri_params;
+    struct evbuffer *buf;
+    size_t len;
+
+    enum evhttp_cmd_type method = evhttp_request_get_command(req);
+    uri = evhttp_request_get_uri(req);
+    evhttp_parse_query_str(uri, &uri_params);
+    headers = evhttp_request_get_input_headers(req);
+
+    req_obj = js_malloc(cb->ctx, sizeof(*req_obj));
+    if (!req_obj) {
+        js_std_dump_error(cb->ctx);
+        return;
+    }
+    req_obj->ctx = cb->ctx;
+    req_obj->str_fields[HTTP_REQ_URI] = (char *)uri;
+    req_obj->str_fields[HTTP_REQ_METHOD] =
+        (char *)evhttp_cmd_type_to_str(method);
+    req_obj->js_fields[HTTP_REQ_PARAMS - HTTP_REQ_PARAMS] =
+        ev_params_to_obj(cb->ctx, &uri_params);
+    req_obj->js_fields[HTTP_REQ_HEADERS - HTTP_REQ_PARAMS] =
+        ev_headers_to_obj(cb->ctx, headers);
+    if (method == EVHTTP_REQ_POST || method == EVHTTP_REQ_PUT ||
+        method == EVHTTP_REQ_PATCH) {
+        buf = evhttp_request_get_input_buffer(req);
+        len = evbuffer_get_length(buf);
+        req_obj->str_fields[HTTP_REQ_BODY] = js_malloc(cb->ctx, len + 1);
+        if (!req_obj->str_fields[HTTP_REQ_BODY]) {
+            js_std_dump_error(cb->ctx);
+            return;
+        }
+        evbuffer_copyout(buf, req_obj->str_fields[HTTP_REQ_BODY], len);
+        req_obj->str_fields[HTTP_REQ_BODY][len] = '\0';
+    }
+
+    argv[0] = JS_NewObjectClass(cb->ctx, http_req_class_id);
+    if (JS_IsException(argv[0])) {
+        js_free(cb->ctx, req_obj->str_fields[HTTP_REQ_BODY]);
+        req_obj->str_fields[HTTP_REQ_BODY] = NULL;
+        js_free(cb->ctx, req_obj);
+        js_std_dump_error(cb->ctx);
+        return;
+    }
+    JS_SetOpaque(argv[0], req_obj);
+
+    ret = JS_Call(cb->ctx, cb->server->callbacks[cb->callback_index],
+                  cb->server_this, 1, argv);
+
+    if (!JS_IsObject(ret)) {
+        js_std_dump_error(cb->ctx);
+        return;
+    }
+    res_obj = JS_GetOpaque(ret, http_res_class_id);
+    if (!res_obj) {
+        JS_ThrowInternalError(cb->ctx, "callback must return response object");
+        js_std_dump_error(cb->ctx);
+        return;
+    }
+    buf = evbuffer_new();
+    if (!buf) {
+        JS_ThrowOutOfMemory(cb->ctx);
+        js_std_dump_error(cb->ctx);
+        return;
+    }
+    if (JS_GetPropertyLength(cb->ctx, (int64_t *)&len, res_obj->headers) ==
+        -1) {
+        js_std_dump_error(cb->ctx);
+        return;
+    }
+    for (size_t i = 0; i < len; ++i) {
+        key = JS_GetPropertyUint32(cb->ctx, res_obj->headers, i);
+        if (JS_IsException(key)) {
+            js_std_dump_error(cb->ctx);
+            return;
+        }
+        value = JS_GetProperty(cb->ctx, res_obj->headers, key);
+        if (JS_IsException(value)) {
+            js_std_dump_error(cb->ctx);
+            return;
+        }
+        evhttp_add_header(evhttp_request_get_output_headers(req),
+                          JS_ToCString(cb->ctx, key),
+                          JS_ToCString(cb->ctx, value));
+        JS_FreeValue(cb->ctx, key);
+        JS_FreeValue(cb->ctx, value);
+    }
+    evbuffer_add(buf, res_obj->body, strlen(res_obj->body));
+    evhttp_send_reply(req, res_obj->status, res_obj->reason, buf);
+    evbuffer_free(buf);
+}
+
 static JSValue http_server_on(JSContext *ctx, JSValueConst this_val, int argc,
                               JSValueConst *argv) {
     http_server *server = JS_GetOpaque2(ctx, this_val, http_server_class_id);
     char *path;
-    JSValue handler;
+    JSValue call_back;
+
     if (!server)
         return JS_EXCEPTION;
     if (argc < 2)
         return JS_ThrowTypeError(ctx, "on([path, handler]), path and handler "
                                       "must be string and function");
-    if (JS_ToCString(ctx, argv[0]) && JS_IsFunction(ctx, argv[1])) {
+    if (!JS_ToCString(ctx, argv[0]) || !JS_IsFunction(ctx, argv[1]))
         return JS_ThrowTypeError(ctx, "on([path, handler]), path and handler "
                                       "must be string and function");
-    }
+
     path = (char *)JS_ToCString(ctx, argv[0]);
     if (!path)
         return JS_EXCEPTION;
-    handler = JS_DupValue(ctx, argv[1]);
-    if (evhttp_set_cb(server->http, path, NULL, NULL) < 0) {
+
+    call_back = JS_DupValue(ctx, argv[1]);
+    server->callbacks = js_realloc(
+        ctx, server->callbacks, (server->callbacks_len + 1) * sizeof(JSValue));
+    if (!server->callbacks) {
         js_free(ctx, path);
-        JS_FreeValue(ctx, handler);
+        JS_FreeValue(ctx, call_back);
+        return JS_ThrowOutOfMemory(ctx);
+    }
+    server->callbacks[server->callbacks_len] = call_back;
+    server->callbacks_len++;
+
+    server->cbs = js_realloc(ctx, server->cbs,
+                             (server->cbs_len + 1) * sizeof(http_server_cb));
+    if (!server->cbs) {
+        js_free(ctx, path);
+        JS_FreeValue(ctx, call_back);
+        return JS_ThrowOutOfMemory(ctx);
+    }
+    server->cbs[server->cbs_len].ctx = ctx;
+    server->cbs[server->cbs_len].server = server;
+    server->cbs[server->cbs_len].server_this = this_val;
+    server->cbs[server->cbs_len].callback_index = server->callbacks_len - 1;
+    server->cbs_len++;
+
+    if (evhttp_set_cb(server->http, path, callback_helper,
+                      &server->cbs[server->cbs_len - 1]) < 0) {
+        js_free(ctx, path);
+        JS_FreeValue(ctx, call_back);
         return JS_ThrowInternalError(ctx, "Failed to set callback for path: %s",
                                      path);
     }
