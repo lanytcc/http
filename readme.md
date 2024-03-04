@@ -11,13 +11,13 @@ git clone https://github.com/lanytcc/quickjs.git
 git clone https://github.com/lanytcc/http.git
 cd http
 xmake b http
-xmake install -o /usr/local http
+xmake install -o . http
 ```
 
 ## How to use
 
 ```javascript
-import { http } from "http.so"; // if you use windows, you need use "http.dll"
+import { http } from "bin/http.so"; // if you use windows, you need use "http.dll"
 
 const server = new http.server();
 
