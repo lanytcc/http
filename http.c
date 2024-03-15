@@ -4,7 +4,7 @@
 
 #include <stdint.h>
 #include <string.h>
-#include <vcruntime.h>
+
 #ifdef _WIN32
 #include <winsock2.h>
 #endif

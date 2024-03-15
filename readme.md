@@ -17,7 +17,7 @@ xmake install -o . http
 ## How to use
 
 ```javascript
-import { http } from "bin/http.so"; // if you use windows, you need use "http.dll"
+import * as http from "bin/http.so"; // if you use windows, you need use "http.dll"
 
 const server = new http.server();
 
