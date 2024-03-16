@@ -7,6 +7,9 @@
 
 #ifdef _WIN32
 #include <winsock2.h>
+#define export_fn __declspec(dllexport)
+#else
+#define export_fn __attribute__((visibility("default")))
 #endif
 
 #include <curl/curl.h>
@@ -430,7 +433,6 @@ static JSValue params_helper(JSContext *ctx, http_req *req, char **params_str) {
         JS_FreeValue(ctx, val);
     }
 
-    JS_FreeValue(ctx, obj);
     for (uint32_t i = 0; i < len; ++i) {
         JS_FreeAtom(ctx, tab[i].atom);
     }
@@ -439,7 +441,6 @@ static JSValue params_helper(JSContext *ctx, http_req *req, char **params_str) {
 fail:
     JS_FreeValue(ctx, val);
 fail1:
-    JS_FreeValue(ctx, obj);
     for (uint32_t i = 0; i < len; ++i) {
         JS_FreeAtom(ctx, tab[i].atom);
     }
@@ -562,7 +563,6 @@ static JSValue headers_helper(JSContext *ctx, http_req *req,
         JS_FreeValue(ctx, val);
     }
 
-    JS_FreeValue(ctx, obj);
     for (uint32_t i = 0; i < len; ++i) {
         JS_FreeAtom(ctx, tab[i].atom);
     }
@@ -571,7 +571,6 @@ static JSValue headers_helper(JSContext *ctx, http_req *req,
 fail:
     JS_FreeValue(ctx, val);
 fail1:
-    JS_FreeValue(ctx, obj);
     for (uint32_t i = 0; i < len; ++i) {
         JS_FreeAtom(ctx, tab[i].atom);
     }
@@ -984,11 +983,13 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
             js_std_dump_error(cb->ctx);
             return;
         }
-        atom = JS_ValueToAtom(ctx, key);
-        if (unlikely(atom == JS_ATOM_NULL))
-            return JS_EXCEPTION;
+        atom = JS_ValueToAtom(cb->ctx, key);
+        if (unlikely(atom == JS_ATOM_NULL)) {
+            js_std_dump_error(cb->ctx);
+            return;
+        }
         value = JS_GetProperty(cb->ctx, res_obj->headers, atom);
-        JS_FreeAtom(ctx, atom);
+        JS_FreeAtom(cb->ctx, atom);
         if (JS_IsException(value)) {
             js_std_dump_error(cb->ctx);
             return;
@@ -1125,8 +1126,7 @@ static int http_init(JSContext *ctx, JSModuleDef *m) {
     return 0;
 }
 
-__declspec(dllexport) JSModuleDef *js_init_module(JSContext *ctx,
-                                                  const char *module_name) {
+export_fn JSModuleDef *js_init_module(JSContext *ctx, const char *module_name) {
     JSModuleDef *m;
     JSClassID id;
 

@@ -22,6 +22,7 @@ pub fn build(b: *std.Build) void {
             "-Wno-array-bounds",
             "-fwrapv",
             "-fdeclspec",
+            "-fvisibility=hidden",
             "-DCONFIG_VERSION=\"2024-02-14\"",
             // "-DCONFIG_CHECK_JSVALUE",
         },
