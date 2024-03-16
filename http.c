@@ -114,7 +114,6 @@ static JSValue http_req_get(JSContext *ctx, JSValueConst this_val, int argc,
                             JSValueConst *argv) {
     http_req *req = JS_GetOpaque2(ctx, this_val, http_req_class_id);
     JSValue obj;
-    JSValue params;
     if (!req)
         return JS_EXCEPTION;
 
@@ -908,7 +907,7 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
     const char *uri;
     struct evkeyvalq *headers, uri_params;
     struct evbuffer *buf;
-    size_t len;
+    size_t len, idx = 0;
 
     enum evhttp_cmd_type method = evhttp_request_get_command(req);
     uri = evhttp_request_get_uri(req);
@@ -970,13 +969,15 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
         js_std_dump_error(cb->ctx);
         return;
     }
-    if (JS_GetPropertyLength(cb->ctx, (int64_t *)&len, res_obj->headers) ==
-        -1) {
-        js_std_dump_error(cb->ctx);
-        return;
-    }
-    for (size_t i = 0; i < len; ++i) {
-        key = JS_GetPropertyUint32(cb->ctx, res_obj->headers, i);
+    // if (JS_GetPropertyLength(cb->ctx, (int64_t *)&len, res_obj->headers) ==
+    //     -1) {
+    //     js_std_dump_error(cb->ctx);
+    //     return;
+    // }
+    while (1) {
+        key = JS_GetPropertyUint32(cb->ctx, res_obj->headers, idx++);
+        if (JS_IsUndefined(key))
+            break;
         if (JS_IsException(key)) {
             js_std_dump_error(cb->ctx);
             return;
