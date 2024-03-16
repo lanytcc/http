@@ -1,8 +1,10 @@
 const std = @import("std");
+const quickjs = @import("../quickjs/build.zig");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
 
+    const q = quickjs.build_quickjs(b, target);
     // const http = b.addSharedLibrary(.{ .name = "http" });
     const http = b.addSharedLibrary(.{
         .name = "http",
@@ -10,10 +12,12 @@ pub fn build(b: *std.Build) void {
         .optimize = .ReleaseSafe,
     });
     // http.setMode(mode);
+
     http.linkLibC();
+    http.linkLibrary(q);
     http.addIncludePath(.{ .path = "../quickjs" });
-    http.addLibraryPath(.{ .path = "../quickjs/zig-out/lib" });
-    http.linkSystemLibrary("quickjs");
+    // http.addLibraryPath(.{ .path = "../quickjs/zig-out/lib" });
+    // http.linkSystemLibrary("quickjs");
     http.linkSystemLibrary("c");
     http.addCSourceFiles(.{
         .files = &.{ "http.c", "util.c" },
