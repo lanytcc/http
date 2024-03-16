@@ -12,13 +12,12 @@ pub fn build(b: *std.Build) void {
     // http.setMode(mode);
     http.linkLibC();
     http.addIncludePath(.{ .path = "../quickjs" });
-    http.addLibraryPath(.{ .path = "../quickjs" });
+    http.addLibraryPath(.{ .path = "../quickjs/zig-out/lib" });
     http.linkSystemLibrary("quickjs");
     http.linkSystemLibrary("c");
     http.addCSourceFiles(.{
         .files = &.{ "http.c", "util.c" },
         .flags = &.{
-            "-fPIC",
             "-Wall",
             "-Wno-array-bounds",
             "-fwrapv",
