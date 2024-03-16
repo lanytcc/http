@@ -974,7 +974,7 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
     //     js_std_dump_error(cb->ctx);
     //     return;
     // }
-    while (1) {
+    while (!JS_IsUndefined(res_obj->headers)) {
         key = JS_GetPropertyUint32(cb->ctx, res_obj->headers, idx++);
         if (JS_IsUndefined(key))
             break;
