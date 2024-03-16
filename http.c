@@ -900,9 +900,8 @@ static const char *evhttp_cmd_type_to_str(enum evhttp_cmd_type type) {
 
 static void callback_helper(struct evhttp_request *req, void *arg) {
     http_server_cb *cb = arg;
-    http_server *server = cb->server;
     JSAtom atom;
-    JSValue argv[1], ret, key, value, res_new;
+    JSValue argv[1], ret, key, value;
     http_req *req_obj;
     http_res *res_obj;
     const char *uri;
@@ -1136,14 +1135,16 @@ export_fn JSModuleDef *js_init_module(JSContext *ctx, const char *module_name) {
 
     if (http_req_class_id == 0) {
         int ret;
-        ret = JS_NewClass(JS_GetRuntime(ctx), &id, &http_req_class);
+        id = JS_NewClassID(&http_req_class_id);
+        ret = JS_NewClass(JS_GetRuntime(ctx), id, &http_req_class);
         if (ret < 0)
             return NULL;
         http_req_class_id = id;
     }
     if (http_res_class_id == 0) {
         int ret;
-        ret = JS_NewClass(JS_GetRuntime(ctx), &id, &http_res_class);
+        id = JS_NewClassID(&http_res_class_id);
+        ret = JS_NewClass(JS_GetRuntime(ctx), id, &http_res_class);
         if (ret < 0)
             return NULL;
         http_res_class_id = id;
