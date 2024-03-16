@@ -359,17 +359,17 @@ static const JSCFunctionListEntry http_res_proto_funcs[] = {
 
 // to str, like "key1=value1&key2=value2"
 static JSValue params_helper(JSContext *ctx, http_req *req, char **params_str) {
-    JSValue obj, val;
+    JSValue val;
     JSPropertyEnum *tab;
     uint32_t len;
     uint64_t cnt = 0, cnt_buf1, cnt_buf2;
     char *str_buf1 = NULL, *str_buf2 = NULL, *key, *value;
-    if (JS_GetOwnPropertyNames(ctx, &tab, &len, obj,
+    if (JS_GetOwnPropertyNames(ctx, &tab, &len, req->js_fields[0],
                                JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) < 0) {
         return JS_EXCEPTION;
     }
     for (uint32_t i = 0; i < len; ++i) {
-        val = JS_GetProperty(ctx, obj, tab[i].atom);
+        val = JS_GetProperty(ctx, req->js_fields[0], tab[i].atom);
         if (!JS_IsString(val)) {
             JS_ThrowTypeError(ctx, "params's value must be string");
             goto fail1;
@@ -496,7 +496,6 @@ fail:
 
 static JSValue ev_params_to_obj(JSContext *ctx, struct evkeyvalq *params) {
     JSValue obj = JS_UNDEFINED;
-    struct evkeyval *param;
     if (!params)
         return JS_UNDEFINED;
     obj = JS_NewObject(ctx);
@@ -512,17 +511,20 @@ static JSValue ev_params_to_obj(JSContext *ctx, struct evkeyvalq *params) {
 // to str, like "Header1: Value1\r\nHeader2: Value2\r\n"
 static JSValue headers_helper(JSContext *ctx, http_req *req,
                               char **headers_str) {
-    JSValue obj, val;
+    JSValue val;
     JSPropertyEnum *tab;
     uint32_t len;
-    uint64_t cnt = 0, cnt_buf1, cnt_buf2;
+    uint64_t cnt = 0;
     char *header_name, *header_value;
-    if (JS_GetOwnPropertyNames(ctx, &tab, &len, obj,
-                               JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) < 0) {
+    if (JS_GetOwnPropertyNames(
+            ctx, &tab, &len, req->js_fields[HTTP_REQ_HEADERS - HTTP_REQ_PARAMS],
+            JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) < 0) {
         return JS_EXCEPTION;
     }
     for (uint32_t i = 0; i < len; ++i) {
-        val = JS_GetProperty(ctx, obj, tab[i].atom);
+        val = JS_GetProperty(ctx,
+                             req->js_fields[HTTP_REQ_HEADERS - HTTP_REQ_PARAMS],
+                             tab[i].atom);
         if (!JS_IsString(val)) {
             JS_ThrowTypeError(ctx, "Header's value must be a string");
             goto fail1;
@@ -622,7 +624,6 @@ fail:
 
 static JSValue ev_headers_to_obj(JSContext *ctx, struct evkeyvalq *headers) {
     JSValue obj = JS_UNDEFINED;
-    struct evkeyval *header;
     if (!headers)
         return JS_UNDEFINED;
     obj = JS_NewObject(ctx);
@@ -901,6 +902,7 @@ static const char *evhttp_cmd_type_to_str(enum evhttp_cmd_type type) {
 static void callback_helper(struct evhttp_request *req, void *arg) {
     http_server_cb *cb = arg;
     http_server *server = cb->server;
+    JSAtom atom;
     JSValue argv[1], ret, key, value, res_new;
     http_req *req_obj;
     http_res *res_obj;
@@ -982,7 +984,11 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
             js_std_dump_error(cb->ctx);
             return;
         }
-        value = JS_GetProperty(cb->ctx, res_obj->headers, key);
+        atom = JS_ValueToAtom(ctx, key);
+        if (unlikely(atom == JS_ATOM_NULL))
+            return JS_EXCEPTION;
+        value = JS_GetProperty(cb->ctx, res_obj->headers, atom);
+        JS_FreeAtom(ctx, atom);
         if (JS_IsException(value)) {
             js_std_dump_error(cb->ctx);
             return;
