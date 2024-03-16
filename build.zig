@@ -13,6 +13,8 @@ pub fn build(b: *std.Build) void {
     http.addIncludePath(.{ .path = "../quickjs" });
     http.addLibraryPath(.{ .path = "../quickjs/zig-out/lib" });
     http.linkSystemLibrary("quickjs");
+    http.linkSystemLibrary("curl");
+    http.linkSystemLibrary("event");
     http.linkSystemLibrary("c");
     http.addCSourceFiles(.{
         .files = &.{ "http.c", "util.c" },
