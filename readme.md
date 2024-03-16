@@ -10,14 +10,13 @@ This module is imported through a dynamic link library from [lanyt.js](https://g
 git clone https://github.com/lanytcc/quickjs.git
 git clone https://github.com/lanytcc/http.git
 cd http
-xmake b http
-xmake install -o . http
+zig build
 ```
 
 ## How to use
 
 ```javascript
-import * as http from "bin/http.so"; // if you use windows, you need use "http.dll"
+import * as http from "libhttp.so"; // if you use windows, you need use ".dll"
 
 const server = new http.server();
 
