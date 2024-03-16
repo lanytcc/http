@@ -19,6 +19,8 @@ pub fn build(b: *std.Build) void {
     http.addCSourceFiles(.{
         .files = &.{ "http.c", "util.c" },
         .flags = &.{
+            "-fPIC",
+            "-shared",
             "-Wall",
             "-Wno-array-bounds",
             "-fwrapv",
