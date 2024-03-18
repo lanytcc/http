@@ -950,8 +950,10 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
     }
     JS_SetOpaque(argv[0], req_obj);
 
+    value = JS_DupValue(cb->ctx, cb->server->callbacks[cb->callback_index]);
     ret = JS_Call(cb->ctx, cb->server->callbacks[cb->callback_index],
                   cb->server_this, 1, argv);
+    cb->server->callbacks[cb->callback_index] = value;
 
     if (!JS_IsObject(ret)) {
         js_std_dump_error(cb->ctx);
