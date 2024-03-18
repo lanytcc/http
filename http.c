@@ -46,10 +46,10 @@ static JSClassID http_req_class_id = 0;
 static void http_req_finalizer(JSRuntime *rt, JSValue val) {
     http_req *req = JS_GetOpaque(val, http_req_class_id);
     if (req) {
-        for (int i = 0; i < HTTP_REQ_PARAMS; ++i) {
+        for (size_t i = 0; i < HTTP_REQ_PARAMS; ++i) {
             js_free(req->ctx, req->str_fields[i]);
         }
-        for (int i = 0; i < HTTP_REQ_COUNT - HTTP_REQ_PARAMS; ++i) {
+        for (size_t i = 0; i < HTTP_REQ_COUNT - HTTP_REQ_PARAMS; ++i) {
             JS_FreeValue(req->ctx, req->js_fields[i]);
         }
         js_free(req->ctx, req);
@@ -950,10 +950,8 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
     }
     JS_SetOpaque(argv[0], req_obj);
 
-    value = JS_DupValue(cb->ctx, cb->server->callbacks[cb->callback_index]);
     ret = JS_Call(cb->ctx, cb->server->callbacks[cb->callback_index],
                   cb->server_this, 1, argv);
-    cb->server->callbacks[cb->callback_index] = value;
 
     if (!JS_IsObject(ret)) {
         js_std_dump_error(cb->ctx);
@@ -1001,7 +999,8 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
         JS_FreeValue(cb->ctx, key);
         JS_FreeValue(cb->ctx, value);
     }
-    evbuffer_add(buf, res_obj->body, strlen(res_obj->body));
+    if (res_obj->body)
+        evbuffer_add(buf, res_obj->body, strlen(res_obj->body));
     evhttp_send_reply(req, res_obj->status, res_obj->reason, buf);
     evbuffer_free(buf);
 }
