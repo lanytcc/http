@@ -125,7 +125,7 @@ static JSValue http_req_get(JSContext *ctx, JSValueConst this_val, int argc,
         return JS_EXCEPTION;
     for (size_t i = 0; i < HTTP_REQ_PARAMS; ++i) {
         if (req->str_fields[i]) {
-            printf(req->str_fields[i]);
+            printf("%s", req->str_fields[i]);
             JS_DefinePropertyValueStr(ctx, obj, http_req_fields[i],
                                       JS_NewString(ctx, req->str_fields[i]),
                                       JS_PROP_C_W_E);
@@ -948,7 +948,7 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
     argv[0] = JS_NewObjectClass(cb->ctx, http_req_class_id);
     if (JS_IsException(argv[0])) {
         for (size_t i = 0; i < HTTP_REQ_PARAMS; ++i) {
-            js_free(req->ctx, req->str_fields[i]);
+            js_free(req_obj->ctx, req_obj->str_fields[i]);
         }
         js_free(cb->ctx, req_obj);
         js_std_dump_error(cb->ctx);
@@ -959,6 +959,7 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
     ret = JS_Call(cb->ctx, cb->server->callbacks[cb->callback_index],
                   cb->server_this, 1, argv);
 
+    JS_FreeValue(argv[0]);
     if (!JS_IsObject(ret)) {
         js_std_dump_error(cb->ctx);
         return;
@@ -1009,6 +1010,7 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
         evbuffer_add(buf, res_obj->body, strlen(res_obj->body));
     evhttp_send_reply(req, res_obj->status, res_obj->reason, buf);
     evbuffer_free(buf);
+    JS_FreeValue(ret);
 }
 
 static JSValue http_server_on(JSContext *ctx, JSValueConst this_val, int argc,
