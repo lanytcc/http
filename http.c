@@ -125,6 +125,7 @@ static JSValue http_req_get(JSContext *ctx, JSValueConst this_val, int argc,
         return JS_EXCEPTION;
     for (size_t i = 0; i < HTTP_REQ_PARAMS; ++i) {
         if (req->str_fields[i]) {
+            printf(req->str_fields[i]);
             JS_DefinePropertyValueStr(ctx, obj, http_req_fields[i],
                                       JS_NewString(ctx, req->str_fields[i]),
                                       JS_PROP_C_W_E);
@@ -909,9 +910,9 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
     struct evbuffer *buf;
     size_t len, idx = 0;
 
+    uri_str = evhttp_request_get_uri(req);
     enum evhttp_cmd_type method = evhttp_request_get_command(req);
     method_str = evhttp_cmd_type_to_str(method);
-    uri_str = evhttp_request_get_uri(req);
     if (!method_str || !uri_str) {
         JS_ThrowInternalError(cb->ctx, "method_str or uri_str is NULL");
         js_std_dump_error(cb->ctx);
@@ -936,19 +937,19 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
         method == EVHTTP_REQ_PATCH) {
         buf = evhttp_request_get_input_buffer(req);
         len = evbuffer_get_length(buf);
-        req_obj->str_fields[HTTP_REQ_BODY] = js_malloc(cb->ctx, len + 1);
+        req_obj->str_fields[HTTP_REQ_BODY] = js_mallocz(cb->ctx, len + 1);
         if (!req_obj->str_fields[HTTP_REQ_BODY]) {
             js_std_dump_error(cb->ctx);
             return;
         }
         evbuffer_copyout(buf, req_obj->str_fields[HTTP_REQ_BODY], len);
-        req_obj->str_fields[HTTP_REQ_BODY][len] = '\0';
     }
 
     argv[0] = JS_NewObjectClass(cb->ctx, http_req_class_id);
     if (JS_IsException(argv[0])) {
-        js_free(cb->ctx, req_obj->str_fields[HTTP_REQ_BODY]);
-        req_obj->str_fields[HTTP_REQ_BODY] = NULL;
+        for (size_t i = 0; i < HTTP_REQ_PARAMS; ++i) {
+            js_free(req->ctx, req->str_fields[i]);
+        }
         js_free(cb->ctx, req_obj);
         js_std_dump_error(cb->ctx);
         return;
