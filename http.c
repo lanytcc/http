@@ -904,7 +904,7 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
     JSValue argv[1], ret, key, value;
     http_req *req_obj;
     http_res *res_obj;
-    const char *uri_str, method_str;
+    const char *uri_str, *method_str;
     struct evkeyvalq *headers, uri_params;
     struct evbuffer *buf;
     size_t len, idx = 0;
