@@ -123,14 +123,14 @@ static JSValue http_req_get(JSContext *ctx, JSValueConst this_val, int argc,
     obj = JS_NewObject(ctx);
     if (JS_IsException(obj))
         return JS_EXCEPTION;
-    for (int i = 0; i < HTTP_REQ_PARAMS; ++i) {
+    for (size_t i = 0; i < HTTP_REQ_PARAMS; ++i) {
         if (req->str_fields[i]) {
             JS_DefinePropertyValueStr(ctx, obj, http_req_fields[i],
                                       JS_NewString(ctx, req->str_fields[i]),
                                       JS_PROP_C_W_E);
         }
     }
-    for (int i = 0; i < HTTP_REQ_COUNT - HTTP_REQ_PARAMS; ++i) {
+    for (size_t i = 0; i < HTTP_REQ_COUNT - HTTP_REQ_PARAMS; ++i) {
         if (!JS_IsUndefined(req->js_fields[i])) {
             JS_DefinePropertyValueStr(ctx, obj,
                                       http_req_fields[i + HTTP_REQ_PARAMS],
@@ -904,14 +904,20 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
     JSValue argv[1], ret, key, value;
     http_req *req_obj;
     http_res *res_obj;
-    const char *uri;
+    const char *uri_str, method_str;
     struct evkeyvalq *headers, uri_params;
     struct evbuffer *buf;
     size_t len, idx = 0;
 
     enum evhttp_cmd_type method = evhttp_request_get_command(req);
-    uri = evhttp_request_get_uri(req);
-    evhttp_parse_query_str(uri, &uri_params);
+    method_str = evhttp_cmd_type_to_str(method);
+    uri_str = evhttp_request_get_uri(req);
+    if (!method_str || !uri_str) {
+        JS_ThrowInternalError(cb->ctx, "method_str or uri_str is NULL");
+        js_std_dump_error(cb->ctx);
+        return;
+    }
+    evhttp_parse_query_str(uri_str, &uri_params);
     headers = evhttp_request_get_input_headers(req);
 
     req_obj = js_malloc(cb->ctx, sizeof(*req_obj));
@@ -920,9 +926,8 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
         return;
     }
     req_obj->ctx = cb->ctx;
-    req_obj->str_fields[HTTP_REQ_URI] = (char *)uri;
-    req_obj->str_fields[HTTP_REQ_METHOD] =
-        (char *)evhttp_cmd_type_to_str(method);
+    req_obj->str_fields[HTTP_REQ_URI] = js_strdup(cb->ctx, uri_str);
+    req_obj->str_fields[HTTP_REQ_METHOD] = js_strdup(cb->ctx, method_str);
     req_obj->js_fields[HTTP_REQ_PARAMS - HTTP_REQ_PARAMS] =
         ev_params_to_obj(cb->ctx, &uri_params);
     req_obj->js_fields[HTTP_REQ_HEADERS - HTTP_REQ_PARAMS] =
