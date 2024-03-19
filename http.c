@@ -125,7 +125,6 @@ static JSValue http_req_get(JSContext *ctx, JSValueConst this_val, int argc,
         return JS_EXCEPTION;
     for (size_t i = 0; i < HTTP_REQ_PARAMS; ++i) {
         if (req->str_fields[i]) {
-            printf("%d\n", strlen(req->str_fields[i]));
             JS_DefinePropertyValueStr(ctx, obj, http_req_fields[i],
                                       JS_NewString(ctx, req->str_fields[i]),
                                       JS_PROP_C_W_E);
@@ -921,7 +920,7 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
     evhttp_parse_query_str(uri_str, &uri_params);
     headers = evhttp_request_get_input_headers(req);
 
-    req_obj = js_malloc(cb->ctx, sizeof(*req_obj));
+    req_obj = js_mallocz(cb->ctx, sizeof(*req_obj));
     if (!req_obj) {
         js_std_dump_error(cb->ctx);
         return;
@@ -929,16 +928,17 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
     req_obj->ctx = cb->ctx;
     req_obj->str_fields[HTTP_REQ_URI] = js_strdup(cb->ctx, uri_str);
     req_obj->str_fields[HTTP_REQ_METHOD] = js_strdup(cb->ctx, method_str);
-    if (method == EVHTTP_REQ_POST || method == EVHTTP_REQ_PUT ||
-        method == EVHTTP_REQ_PATCH) {
-        buf = evhttp_request_get_input_buffer(req);
-        len = evbuffer_get_length(buf);
-        req_obj->str_fields[HTTP_REQ_BODY] = js_mallocz(cb->ctx, len + 1);
+    buf = evhttp_request_get_input_buffer(req);
+    len = evbuffer_get_length(buf);
+    if (len > 0 && (method == EVHTTP_REQ_POST || method == EVHTTP_REQ_PUT ||
+                    method == EVHTTP_REQ_PATCH)) {
+        req_obj->str_fields[HTTP_REQ_BODY] = js_malloc(cb->ctx, len + 1);
         if (!req_obj->str_fields[HTTP_REQ_BODY]) {
             js_std_dump_error(cb->ctx);
             return;
         }
         evbuffer_copyout(buf, req_obj->str_fields[HTTP_REQ_BODY], len);
+        req_obj->str_fields[HTTP_REQ_BODY][len] = '\0';
     }
     req_obj->js_fields[HTTP_REQ_PARAMS - HTTP_REQ_PARAMS] =
         ev_params_to_obj(cb->ctx, &uri_params);
