@@ -125,7 +125,7 @@ static JSValue http_req_get(JSContext *ctx, JSValueConst this_val, int argc,
         return JS_EXCEPTION;
     for (size_t i = 0; i < HTTP_REQ_PARAMS; ++i) {
         if (req->str_fields[i]) {
-            printf("%s", req->str_fields[i]);
+            printf("%d\n", strlen(req->str_fields[i]));
             JS_DefinePropertyValueStr(ctx, obj, http_req_fields[i],
                                       JS_NewString(ctx, req->str_fields[i]),
                                       JS_PROP_C_W_E);
@@ -929,10 +929,6 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
     req_obj->ctx = cb->ctx;
     req_obj->str_fields[HTTP_REQ_URI] = js_strdup(cb->ctx, uri_str);
     req_obj->str_fields[HTTP_REQ_METHOD] = js_strdup(cb->ctx, method_str);
-    req_obj->js_fields[HTTP_REQ_PARAMS - HTTP_REQ_PARAMS] =
-        ev_params_to_obj(cb->ctx, &uri_params);
-    req_obj->js_fields[HTTP_REQ_HEADERS - HTTP_REQ_PARAMS] =
-        ev_headers_to_obj(cb->ctx, headers);
     if (method == EVHTTP_REQ_POST || method == EVHTTP_REQ_PUT ||
         method == EVHTTP_REQ_PATCH) {
         buf = evhttp_request_get_input_buffer(req);
@@ -944,6 +940,10 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
         }
         evbuffer_copyout(buf, req_obj->str_fields[HTTP_REQ_BODY], len);
     }
+    req_obj->js_fields[HTTP_REQ_PARAMS - HTTP_REQ_PARAMS] =
+        ev_params_to_obj(cb->ctx, &uri_params);
+    req_obj->js_fields[HTTP_REQ_HEADERS - HTTP_REQ_PARAMS] =
+        ev_headers_to_obj(cb->ctx, headers);
 
     argv[0] = JS_NewObjectClass(cb->ctx, http_req_class_id);
     if (JS_IsException(argv[0])) {
