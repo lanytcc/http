@@ -959,7 +959,6 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
     ret = JS_Call(cb->ctx, cb->server->callbacks[cb->callback_index],
                   cb->server_this, 1, argv);
 
-    JS_FreeValue(cb->ctx, argv[0]);
     if (!JS_IsObject(ret)) {
         js_std_dump_error(cb->ctx);
         return;
@@ -1010,7 +1009,6 @@ static void callback_helper(struct evhttp_request *req, void *arg) {
         evbuffer_add(buf, res_obj->body, strlen(res_obj->body));
     evhttp_send_reply(req, res_obj->status, res_obj->reason, buf);
     evbuffer_free(buf);
-    JS_FreeValue(cb->ctx, ret);
 }
 
 static JSValue http_server_on(JSContext *ctx, JSValueConst this_val, int argc,
